@@ -1,5 +1,3 @@
-require('dotenv').config();
-
 const handler = async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'method_not_allowed' });
