@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { useEffect, useMemo, useState } from 'react';
 
 type MenuPattern = 'safe' | 'new';
@@ -41,6 +42,7 @@ const generateProposals = (history: string[], inventory: InventoryItem[], option
 // --- Google OAuth (PKCE) and Calendar helpers ---
 const GOOGLE_OAUTH_TOKEN = 'https://oauth2.googleapis.com/token';
 const GOOGLE_CALENDAR_EVENTS = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+const OAUTH_PROXY = import.meta.env.VITE_OAUTH_PROXY_URL ?? '';
 
 const base64UrlEncode = (arrayBuffer: ArrayBuffer) => {
   const bytes = new Uint8Array(arrayBuffer);
@@ -116,6 +118,7 @@ const App = () => {
   const [googleSignedIn, setGoogleSignedIn] = useState<boolean>(false);
   const [googleEvents, setGoogleEvents] = useState<any[]>([]);
   const [importMessage, setImportMessage] = useState<string>('');
+  const [googleStatus, setGoogleStatus] = useState<string>('');
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -131,28 +134,66 @@ const App = () => {
       // exchange code for tokens
       const verifier = sessionStorage.getItem('pkce_verifier') ?? '';
       const redirect_uri = `${window.location.origin}${window.location.pathname}`;
-      const body = new URLSearchParams();
-      body.set('client_id', localStorage.getItem('googleClientId') ?? '');
-      body.set('code', code);
-      body.set('code_verifier', verifier);
-      body.set('grant_type', 'authorization_code');
-      body.set('redirect_uri', redirect_uri);
-
-      fetch(GOOGLE_OAUTH_TOKEN, { method: 'POST', body: body.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data.access_token) {
-            data.__obtained_at = Math.floor(Date.now() / 1000);
-            localStorage.setItem('googleTokens', JSON.stringify(data));
-            setGoogleSignedIn(true);
-            // remove code from URL
-            const url = new URL(window.location.href);
-            url.searchParams.delete('code');
-            url.searchParams.delete('state');
-            window.history.replaceState({}, document.title, url.toString());
-          }
+      // If OAUTH proxy is configured, POST to it so the server can use client_secret securely.
+      if (OAUTH_PROXY) {
+        fetch(`${OAUTH_PROXY.replace(/\/$/, '')}/exchange`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, code_verifier: verifier, redirect_uri, client_id: localStorage.getItem('googleClientId') ?? '' }),
         })
-        .catch(() => {});
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.access_token) {
+              data.__obtained_at = Math.floor(Date.now() / 1000);
+              localStorage.setItem('googleTokens', JSON.stringify(data));
+              setGoogleSignedIn(true);
+              setGoogleStatus('Google 認証に成功しました（プロキシ経由）。カレンダーを取得できます。');
+              const url = new URL(window.location.href);
+              url.searchParams.delete('code');
+              url.searchParams.delete('state');
+              window.history.replaceState({}, document.title, url.toString());
+            } else {
+              const errorText = data.error_description ?? data.error ?? JSON.stringify(data);
+              setGoogleStatus(`トークン取得失敗: ${errorText}`);
+              console.error('OAuth proxy response:', data);
+            }
+          })
+          .catch((error) => {
+            setGoogleStatus(`トークン交換プロキシに接続できません: ${error.message ?? error}`);
+            console.error('OAuth proxy error:', error);
+          });
+      } else {
+        const body = new URLSearchParams();
+        body.set('client_id', localStorage.getItem('googleClientId') ?? '');
+        body.set('code', code);
+        body.set('code_verifier', verifier);
+        body.set('grant_type', 'authorization_code');
+        body.set('redirect_uri', redirect_uri);
+
+        fetch(GOOGLE_OAUTH_TOKEN, { method: 'POST', body: body.toString(), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.access_token) {
+              data.__obtained_at = Math.floor(Date.now() / 1000);
+              localStorage.setItem('googleTokens', JSON.stringify(data));
+              setGoogleSignedIn(true);
+              setGoogleStatus('Google 認証に成功しました。カレンダーを取得できます。');
+              // remove code from URL
+              const url = new URL(window.location.href);
+              url.searchParams.delete('code');
+              url.searchParams.delete('state');
+              window.history.replaceState({}, document.title, url.toString());
+            } else {
+              const errorText = data.error_description ?? data.error ?? 'トークン取得に失敗しました。';
+              setGoogleStatus(`トークン取得失敗: ${errorText}`);
+              console.error('Google OAuth token response:', data);
+            }
+          })
+          .catch((error) => {
+            setGoogleStatus(`トークン取得時にエラーが発生しました: ${error.message ?? error}`);
+            console.error('Google OAuth token exchange failed:', error);
+          });
+      }
     }
   }, []);
 
@@ -205,17 +246,27 @@ const App = () => {
     localStorage.removeItem('googleTokens');
     setGoogleSignedIn(false);
     setGoogleEvents([]);
+    setGoogleStatus('');
   };
 
   const fetchGoogleEvents = async () => {
     const token = await getAccessToken();
-    if (!token) return alert('認証が必要です');
+    if (!token) {
+      setGoogleStatus('Google のアクセストークンが見つかりません。再度サインインしてください。');
+      return;
+    }
     const now = new Date();
     const timeMin = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
     const url = `${GOOGLE_CALENDAR_EVENTS}?timeMin=${encodeURIComponent(timeMin)}&singleEvents=true&orderBy=startTime&maxResults=50`;
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json();
-    setGoogleEvents(data.items ?? []);
+    if (res.ok) {
+      setGoogleEvents(data.items ?? []);
+      setGoogleStatus('カレンダーを取得しました。');
+    } else {
+      setGoogleStatus(`カレンダー取得に失敗しました: ${data.error?.message ?? JSON.stringify(data)}`);
+      console.error('Google Calendar fetch failed:', data);
+    }
   };
 
   const createGoogleEvent = async (date: string, summary: string) => {
@@ -308,6 +359,7 @@ const App = () => {
           <button type="button" onClick={fetchGoogleEvents} style={{ marginLeft: 8 }}>カレンダーを取得</button>
         </div>
         {googleSignedIn && <p className="note">Google にサインイン済みです。</p>}
+        {googleStatus && <p className="note">{googleStatus}</p>}
         {importMessage && <p className="note">{importMessage}</p>}
         <button type="button" onClick={refreshProposals} className="primary" style={{ marginTop: 8 }}>
           提案をリフレッシュ
