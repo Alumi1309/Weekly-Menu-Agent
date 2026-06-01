@@ -61,6 +61,11 @@ button.primary {
   color: #fff;
 }
 
+.note {
+  margin-top: 12px;
+  color: #2a6b2e;
+}
+
 .proposal-grid {
   display: grid;
   gap: 16px;
