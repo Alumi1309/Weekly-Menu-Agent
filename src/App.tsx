@@ -136,7 +136,7 @@ const App = () => {
       const redirect_uri = `${window.location.origin}${window.location.pathname}`;
       // If OAUTH proxy is configured, POST to it so the server can use client_secret securely.
       if (OAUTH_PROXY) {
-        fetch(`${OAUTH_PROXY.replace(/\/$/, '')}/exchange`, {
+        fetch(`${OAUTH_PROXY.replace(/\/$/, '')}/api/exchange`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code, code_verifier: verifier, redirect_uri, client_id: localStorage.getItem('googleClientId') ?? '' }),

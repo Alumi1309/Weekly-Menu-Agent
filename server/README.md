@@ -9,7 +9,7 @@ Deploy to Vercel, Netlify Functions, or any small Node host. Set environment var
 - `ALLOWED_ORIGIN` (optional, defaults to allow all)
 
 Endpoints:
-- `POST /exchange` JSON body: `{ code, code_verifier?, redirect_uri, client_id? }` returns Google's token JSON response.
+- `POST /api/exchange` JSON body: `{ code, code_verifier?, redirect_uri, client_id? }` returns Google's token JSON response.
 
 Security:
 - Keep `GOOGLE_CLIENT_SECRET` private (do not commit `.env`).
@@ -17,4 +17,4 @@ Security:
 Vercel deployment:
 - Create a Vercel project using this `server/` folder as the root.
 - Set Environment Variables in Vercel: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_ORIGIN`.
-- The proxy endpoint will be available at `/exchange` on your Vercel deployment.
+- The proxy endpoint will be available at `/api/exchange` on your Vercel deployment.
